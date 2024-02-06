@@ -6,6 +6,11 @@ name = "pypi"
 [packages]
 requests = "*"
 bs4 = "*"
+razdel = "*"
+torch = "*"
+transformers = "*"
+qdrant-client = "*"
+pandas = "*"
 
 [dev-packages]
 
