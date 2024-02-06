@@ -11,6 +11,8 @@ torch = "*"
 transformers = "*"
 qdrant-client = "*"
 pandas = "*"
+numpy = "*"
+fake-useragent = "*"
 
 [dev-packages]
 

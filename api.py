@@ -5,6 +5,7 @@ from transformers import AutoTokenizer, AutoModel
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from keys import QDRANT_URL, QDRANT_API_KEY
+import numpy as np
 
 
 qdrant_client = QdrantClient(
@@ -32,37 +33,48 @@ def average_pool(last_hidden_states: Tensor,
     return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
 
 
-def upsert_wiki_database(articles_names: list[str], collection_name: str, create_collection: bool = False) -> None:
-    sentences_dataframe = get_wiki_sentences_dataframe(articles_names)
+def upsert_wiki_database(articles_names: list[str], collection_name: str, 
+                         start_id: int, create_collection: bool = False) -> None:
     if create_collection:
         create_new_collection(collection_name)
     
-    batch_dict = tokenizer(list(sentences_dataframe['sentence']), max_length=512, padding=True, truncation=True, return_tensors='pt')
-    outputs = model(**batch_dict)
-    embeddings = average_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
+    for article in articles_names:
+        article_subframe = get_wiki_sentences_dataframe([article])
+        print(article_subframe)
+        for index, batch in enumerate(np.array_split(article_subframe, len(article_subframe))):
 
-    # normalize embeddings
-    embeddings = F.normalize(embeddings, p=2, dim=1)
+            batch_dict = tokenizer(list(batch['sentence']), max_length=512, padding=True, 
+                                truncation=True, return_tensors='pt')
+            
+            outputs = model(**batch_dict)
+            embeddings = average_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
 
-    qdrant_client.upsert(
-        collection_name=collection_name,
-        points=models.Batch(
-            ids=[i for i in range(sentences_dataframe.shape[0])],
-            payloads=[
-                {
-                    "text": row["sentence"],
-                    "title": row["title"],
-                    "url": row["url"],
-                }
-                for _, row in sentences_dataframe.iterrows()
-            ],
-            vectors=[v.tolist() for v in embeddings],
-        ),
-    )
+            # normalize embeddings
+            embeddings = F.normalize(embeddings, p=2, dim=1)
+
+            qdrant_client.upsert(
+                collection_name=collection_name,
+                points=models.Batch(
+                    ids=[start_id + i for i in range(batch.shape[0])],
+                    payloads=[
+                        {
+                            "text": row["sentence"],
+                            "title": row["title"],
+                            "url": row["url"],
+                        }
+                        for _, row in batch.iterrows()
+                    ],
+                    vectors=[v.tolist() for v in embeddings],
+                ),
+            )
+            start_id += batch.shape[0]
+
+            print(f"Batch {index}: Successfully added {len(embeddings)} vectors to collection '{collection_name}'.")
+
 
 articles = [
 		'ChatGPT',
-		'Виртуальный_собеседник',
+	    'Виртуальный_собеседник',
 		'Генеративный_искусственный_интеллект',
 		'Глубокое_обучение_(Южный_Парк)',
 		'Южный_Парк',
@@ -82,4 +94,15 @@ articles = [
 		'Крикет'
 	]
 
-upsert_wiki_database(articles, collection_name="wiki collection", create_collection=True)
+ans = qdrant_client.search(
+    collection_name="wiki collection",
+    query_vector=[1 for i in range(1024)],
+    limit=3,
+)
+print(ans)
+# qdrant_client.delete(
+#    collection_name="wiki collection",
+#    points_selector=models.PointIdsList(
+#        points=[i for i in range(279)],
+#    ),
+# )
