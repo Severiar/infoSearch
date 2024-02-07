@@ -1,4 +1,4 @@
-from parsing import get_wiki_sentences_dataframe
+from parsing import get_wiki_sentences_dataframe, get_clear_string
 import torch.nn.functional as F
 from torch import Tensor
 from transformers import AutoTokenizer, AutoModel
@@ -6,6 +6,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from keys import QDRANT_URL, QDRANT_API_KEY
 import numpy as np
+from fastapi import FastAPI
+import uvicorn
 
 
 qdrant_client = QdrantClient(
@@ -15,6 +17,8 @@ qdrant_client = QdrantClient(
 
 tokenizer = AutoTokenizer.from_pretrained('intfloat/multilingual-e5-large')
 model = AutoModel.from_pretrained('intfloat/multilingual-e5-large')
+
+app = FastAPI()
 
 
 def create_new_collection(collection_name: str) -> None:
@@ -71,6 +75,27 @@ def upsert_wiki_database(articles_names: list[str], collection_name: str,
 
             print(f"Batch {index}: Successfully added {len(embeddings)} vectors to collection '{collection_name}'.")
 
+@app.get('/get_relevant_sentences')
+def get_relevant_sentences(query: str, sentences_number: int = 10, collection_name: str = "wiki collection"):
+    batch_dict = tokenizer([query,], max_length=512, padding=True, 
+                                truncation=True, return_tensors='pt')
+            
+    outputs = model(**batch_dict)
+    embeddings = average_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
+
+    embedding = F.normalize(embeddings, p=2, dim=1)[0]
+
+    closest_vectors = qdrant_client.search(
+        collection_name=collection_name,
+        search_params=models.SearchParams(hnsw_ef=128, exact=True),
+        query_vector=embedding,
+        limit=sentences_number,
+        with_vectors=False,
+        with_payload=True
+    )
+
+    return closest_vectors
+
 
 articles = [
 		'ChatGPT',
@@ -94,15 +119,5 @@ articles = [
 		'Крикет'
 	]
 
-ans = qdrant_client.search(
-    collection_name="wiki collection",
-    query_vector=[1 for i in range(1024)],
-    limit=3,
-)
-print(ans)
-# qdrant_client.delete(
-#    collection_name="wiki collection",
-#    points_selector=models.PointIdsList(
-#        points=[i for i in range(279)],
-#    ),
-# )
+if __name__ == '__main__':
+    uvicorn.run('api:app', host='0.0.0.0')
