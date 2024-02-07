@@ -8,12 +8,14 @@ from fake_useragent import UserAgent
 import random
 
 def get_clear_string(string: str) -> str:
+	"""Удаление ссылок типа [14] из статей и замена спецсимвола 'NO BREAK SPACE' на пробел."""
 	removed_references = re.sub(r"\[[0-9]+\]", "", string)
 	removed_nobreak_spaces = re.sub("\xa0", "\x20", removed_references)
 	return removed_nobreak_spaces
 
 
-def get_wiki_sentences_dataframe(articles_list: list[str]):
+def get_wiki_sentences_dataframe(articles_list: list[str]) -> pd.DataFrame:
+	"""Получает список из названий статей и возвращает DataFrame из предложений с метаданными"""
 	sentences = []
 	titles = []
 	urls = []
